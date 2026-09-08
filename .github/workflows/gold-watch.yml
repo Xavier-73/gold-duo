@@ -1,7 +1,7 @@
 name: gold-watch
 
 # 全免费盯盘：每5分钟跑一次 scripts/gold_watch.py
-# 默认4档：965清仓 / 961走一半 / 935止损 / 930深跌，同档60分钟冷却
+# 默认4档：965清仓 / 961走一半 / 935止损 / 955走弱提醒，同档60分钟冷却
 # 自定义：在 Variables 里加 LEVELS，格式“价格:方向:文案”用英文分号隔开
 # 例：965:high:到965全走;961:high:到961卖25g;935:low:破935走25g
 # 需要先在 GitHub 仓库 Settings → Secrets → Actions 里加 BARK_KEY
