@@ -1,7 +1,8 @@
 name: gold-watch
 
 # 全免费盯盘：每5分钟跑一次 scripts/gold_watch.py
-# 默认4档：965清仓 / 961走一半 / 935止损 / 955走弱提醒，同档60分钟冷却
+# 默认4档：965清仓 / 961走一半 / 935止损 / 955走弱提醒
+# 规则：穿越触发＋15分钟防抖（FLAP_MIN），回到线内再穿出来才算新事件
 # 自定义：在 Variables 里加 LEVELS，格式“价格:方向:文案”用英文分号隔开
 # 例：965:high:到965全走;961:high:到961卖25g;935:low:破935走25g
 # 需要先在 GitHub 仓库 Settings → Secrets → Actions 里加 BARK_KEY
@@ -39,15 +40,17 @@ jobs:
           TH_LOW: ${{ vars.TH_LOW }}
           LEVELS: ${{ vars.LEVELS }}
           COOLDOWN_MIN: ${{ vars.COOLDOWN_MIN }}
+          FLAP_MIN: ${{ vars.FLAP_MIN }}
           BANK_OFFSET: ${{ vars.BANK_OFFSET }}
           FACTOR: ${{ vars.FACTOR }}
           DRY_RUN: ${{ inputs.dry_run }}
         run: |
           : "${BARK_URL:=https://api.day.app}"
-          : "${COOLDOWN_MIN:=60}"
+          : "${COOLDOWN_MIN:=15}"
           : "${BANK_OFFSET:=0}"
           : "${FACTOR:=1}"
           export BARK_URL COOLDOWN_MIN BANK_OFFSET FACTOR LEVELS
+          if [ -n "${FLAP_MIN:-}" ]; then export FLAP_MIN; fi
           # 注意：TH_HIGH/TH_LOW 故意不设默认值，不填就用脚本内置4档；
           # 一旦填了任一个，就退回老式两档模式
           if [ -n "${TH_HIGH:-}" ]; then export TH_HIGH; else unset TH_HIGH; fi

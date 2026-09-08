@@ -4,15 +4,15 @@
   1. 拉国内上金所基准（东方财富：Au99.99 日盘 / Au(T+D) 夜盘，按北京时间自动切换）
   2. 基准拿不到时降级为 国际XAU/31.1034768*汇率*系数
   3. 积存估算 = 基准 + 银行加点(offset)
-  4. 到了 thHigh / 破 thLow 且过冷却就推 Bark 到 iPhone，状态写回 gold-push-state.json
+  4. 穿越盯盘线就推 Bark 到 iPhone（穿越触发＋15分钟防抖），状态写回 gold-push-state.json
 环境变量：
   BARK_KEY     Bark 的 device key（必填，放 GitHub Secrets）
   BARK_URL     自建 bark server 则填，否则默认 https://api.day.app
   TH_HIGH      默认 961（兼容老用法；设了 LEVELS 则以 LEVELS 为准）
   TH_LOW       默认 935（同上）
   LEVELS       多级盯盘，格式“价格:方向:文案”用英文分号隔开，方向 high=涨到 / low=跌破
-               默认 "965:high:到965清仓线，剩下的全走，回APP确认1秒价;961:high:到961按计划卖25g;935:low:破935止损纪律，半天站不回走25g;930:low:破930深跌，剩下的等FOMC别割在地板"
-  COOLDOWN_MIN 同一档位冷却分钟数，默认 60
+               默认 "965:high:到965清仓线，剩下的全走，回APP确认1秒价;961:high:到961按计划卖25g;935:low:破935止损纪律，半天站不回走25g;955:low:跌破955走弱提醒，935破了再按纪律走"
+  FLAP_MIN     防抖分钟数，默认 15：在线上来回抖，15分钟内只推一次（兼容 COOLDOWN_MIN 老参数）
   BANK_OFFSET  银行加点 = 银行APP卖出价 - 上金所基准（默认 0，看板校准后把值抄过来）
   FACTOR       降级公式系数（默认 1）
 """
@@ -154,21 +154,50 @@ def migrate_state(st):
     return st
 
 
-def last_at(st, direction, level):
-    lv = st.get("levels", {})
-    key = f"{direction[0]}:{level:g}"
-    if key in lv:
-        return float(lv[key])
-    # 兼容升级前的冷却时间
-    if direction == "high" and "_old_high_at" in st:
-        return float(st["_old_high_at"])
-    if direction == "low" and "_old_low_at" in st:
-        return float(st["_old_low_at"])
-    return 0
+def lvl_entry(st, direction, level):
+    """取某档的状态 {t: 上次推送时间, side: 上轮位置 hit/out/None}，兼容老 state。"""
+    e = st.get("levels", {}).get(f"{direction[0]}:{level:g}") or {}
+    t = e.get("t", 0)
+    if not t:
+        t = st.get("_old_high_at" if direction == "high" else "_old_low_at", 0)
+    return float(t or 0), e.get("side")
 
 
-def mark_at(st, direction, level, now):
-    st.setdefault("levels", {})[f"{direction[0]}:{level:g}"] = now
+def set_lvl(st, direction, level, t, side):
+    st.setdefault("levels", {})[f"{direction[0]}:{level:g}"] = {"t": t, "side": side}
+
+
+def breached(direction, bank, level):
+    return bank >= level if direction == "high" else bank <= level
+
+
+def decide_fire(st, bank, base, src, levels, now, flap):
+    """穿越触发：只有“从线内穿到线外”才算新事件；在在线上待着不重复推。
+    每轮每方向只推最极端的一档。返回 (fire, st)，fire 为 None 或
+    (direction, level, title, body)。side 每次都更新，t 只在真推送时更新。"""
+    fire = None
+    for direction in ("high", "low"):
+        ordered = sorted([lv for lv in levels if lv[1] == direction],
+                         key=lambda x: x[0], reverse=(direction == "high"))
+        cands = []
+        for lv, _, msg in ordered:
+            hit = breached(direction, bank, lv)
+            side_now = "hit" if hit else "out"
+            t_last, side_prev = lvl_entry(st, direction, lv)
+            fresh = hit and side_prev != "hit"  # 含首次见到的已穿线（side None）
+            set_lvl(st, direction, lv, t_last, side_now)
+            if fresh:
+                if now - t_last > flap:
+                    cands.append((lv, msg))
+                else:
+                    print(f"{direction} {lv:g} 刚穿但在防抖内，吞掉", flush=True)
+        if cands and fire is None:
+            # 同方向穿多档只推最极端：high 取最高，low 取最低
+            lv, msg = cands[0] if direction == "high" else cands[-1]
+            verb = "到线" if direction == "high" else "破线"
+            fire = (direction, lv, f"黄金{verb} {lv:g}",
+                    f"积存估算¥{bank:.1f}（基准{base:.1f}·{src}），{msg}")
+    return fire, st
 
 
 def bark_push(base, key, title, body, group="gold-duo"):
@@ -180,7 +209,7 @@ def bark_push(base, key, title, body, group="gold-duo"):
 
 
 def main():
-    cooldown = float(os.getenv("COOLDOWN_MIN", "60")) * 60
+    flap = float(os.getenv("FLAP_MIN", os.getenv("COOLDOWN_MIN", "15"))) * 60
     offset = float(os.getenv("BANK_OFFSET", "0"))
     factor = float(os.getenv("FACTOR", "1"))
     bark_key = os.getenv("BARK_KEY", "").strip()
@@ -219,30 +248,19 @@ def main():
           + " low=" + ",".join(f"{lv:g}" for lv, _, _ in lows), flush=True)
 
     st = migrate_state(load_state())
-    fire = None
-    # 同一轮只推最极端的那一档，避免一次连推好几条
-    hit_high = [lv for lv in highs if bank >= lv[0]]
-    hit_low = [lv for lv in lows if bank <= lv[0]]
-    if hit_high:
-        lv, _, msg = max(hit_high, key=lambda x: x[0])
-        if now - last_at(st, "high", lv) > cooldown:
-            fire = ("high", lv, f"黄金到线 {lv:g}",
-                    f"积存估算¥{bank:.1f}（基准{base:.1f}·{src}），{msg}")
-    if fire is None and hit_low:
-        lv, _, msg = min(hit_low, key=lambda x: x[0])
-        if now - last_at(st, "low", lv) > cooldown:
-            fire = ("low", lv, f"黄金破线 {lv:g}",
-                    f"积存估算¥{bank:.1f}（基准{base:.1f}·{src}），{msg}")
+    fire, st = decide_fire(st, bank, base, src, levels, now, flap)
 
     if not fire:
-        print("区间内或冷却中，不推送", flush=True)
+        if not dry and bark_key:
+            save_state(st)  # side 变化落盘，下轮才能判断穿越；dry 绝不写盘
+        print("无新穿越，不推送", flush=True)
         return 0
     direction, lv, title, body = fire
     if dry or not bark_key:
         print(f"DRY/无KEY不真推：{title} | {body}", flush=True)
         return 0
     bark_push(bark_url, bark_key, title, body)
-    mark_at(st, direction, lv, now)
+    set_lvl(st, direction, lv, now, "hit")
     save_state(st)
     print("已推送并更新状态", flush=True)
     return 0
