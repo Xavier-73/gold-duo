@@ -258,8 +258,16 @@ def main():
     direction, lv, title, body = fire
     if dry or not bark_key:
         print(f"DRY/无KEY不真推：{title} | {body}", flush=True)
+        if not bark_key:
+            print("注意：BARK_KEY 为空，去仓库 Secrets 里添加（重装Bark App会换key，旧key会失效）", flush=True)
         return 0
-    bark_push(bark_url, bark_key, title, body)
+    try:
+        bark_push(bark_url, bark_key, title, body)
+    except Exception as e:
+        print(f"Bark推送失败：{e}", flush=True)
+        print("排查：1) Secrets 里 BARK_KEY 是否最新key（重装App后旧key作废）；"
+              "2) 测试地址浏览器能通否：https://api.day.app/<你的key>/测试/通否", flush=True)
+        return 1
     set_lvl(st, direction, lv, now, "hit")
     save_state(st)
     print("已推送并更新状态", flush=True)
