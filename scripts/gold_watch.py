@@ -115,7 +115,7 @@ DEFAULT_LEVELS = (
 def parse_levels():
     """返回 [(价格, 方向, 文案)]。优先 LEVELS，否则用 TH_HIGH/TH_LOW 拼两档（兼容老配置）。"""
     raw = os.getenv("LEVELS", "").strip()
-    if not raw and ("TH_HIGH" in os.environ or "TH_LOW" in os.environ):
+    if not raw and (os.getenv("TH_HIGH") or os.getenv("TH_LOW")):
         th_high = os.getenv("TH_HIGH", "961").strip() or "961"
         th_low = os.getenv("TH_LOW", "935").strip() or "935"
         raw = (
@@ -208,10 +208,18 @@ def bark_push(base, key, title, body, group="gold-duo"):
         print("bark:", r.status, r.read().decode("utf-8", "ignore")[:200], flush=True)
 
 
+def env_float(name, default):
+    """Actions 传空变量会变成空字符串，这里一律按缺失处理，防 ValueError 炸整轮。"""
+    try:
+        return float((os.getenv(name) or "").strip())
+    except ValueError:
+        return default
+
+
 def main():
-    flap = float(os.getenv("FLAP_MIN", os.getenv("COOLDOWN_MIN", "15"))) * 60
-    offset = float(os.getenv("BANK_OFFSET", "0"))
-    factor = float(os.getenv("FACTOR", "1"))
+    flap = env_float("FLAP_MIN", env_float("COOLDOWN_MIN", 15)) * 60
+    offset = env_float("BANK_OFFSET", 0)
+    factor = env_float("FACTOR", 1)
     bark_key = os.getenv("BARK_KEY", "").strip()
     bark_url = os.getenv("BARK_URL", "https://api.day.app").strip()
     dry = os.getenv("DRY_RUN", "") == "1"

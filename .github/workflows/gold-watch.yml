@@ -54,7 +54,7 @@ jobs:
           : "${BANK_OFFSET:=0}"
           : "${FACTOR:=1}"
           export BARK_URL COOLDOWN_MIN BANK_OFFSET FACTOR LEVELS
-          if [ -n "${FLAP_MIN:-}" ]; then export FLAP_MIN; fi
+          if [ -n "${FLAP_MIN:-}" ]; then export FLAP_MIN; else unset FLAP_MIN; fi
           # 注意：TH_HIGH/TH_LOW 故意不设默认值，不填就用脚本内置4档；
           # 一旦填了任一个，就退回老式两档模式
           if [ -n "${TH_HIGH:-}" ]; then export TH_HIGH; else unset TH_HIGH; fi
