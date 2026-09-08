@@ -17,6 +17,10 @@ on:
         description: "只跑不推送（填 1 则只打印）"
         required: false
         default: "0"
+      test_levels:
+        description: "模拟测试线（例 960:low:模拟测试，当前价必穿即推；留空用正常档位）"
+        required: false
+        default: ""
 
 permissions:
   contents: write
@@ -55,11 +59,19 @@ jobs:
           # 一旦填了任一个，就退回老式两档模式
           if [ -n "${TH_HIGH:-}" ]; then export TH_HIGH; else unset TH_HIGH; fi
           if [ -n "${TH_LOW:-}" ]; then export TH_LOW; else unset TH_LOW; fi
+          if [ -n "${{ inputs.test_levels }}" ]; then
+            export LEVELS='${{ inputs.test_levels }}'
+            echo "模拟测试模式，档位：$LEVELS"
+          fi
           python3 scripts/gold_watch.py
 
       - name: Commit push state (only if changed)
         run: |
-          if git status --porcelain gold-push-state.json | grep -q .; then
+          if [ -n "${{ inputs.test_levels }}" ]; then
+            git checkout -- gold-push-state.json 2>/dev/null || true
+            echo "模拟测试，本轮状态不落盘，生产档位不受影响"
+            exit 0
+          fi          if git status --porcelain gold-push-state.json | grep -q .; then
             git config user.name "gold-watch-bot"
             git config user.email "gold-watch-bot@users.noreply.github.com"
             git add gold-push-state.json
