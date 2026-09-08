@@ -106,9 +106,13 @@ def save_state(s):
 
 DEFAULT_LEVELS = (
     "965:high:到965清仓线，剩下的全走，回APP确认1秒价;"
-    "961:high:到961按计划卖25g;"
-    "935:low:破935止损纪律，半天站不回走25g;"
-    "955:low:跌破955走弱提醒，935破了再按纪律走"
+    "963:high:到963接近清仓线，准备走剩下的;"
+    "960:high:到960总体回本附近，按计划卖25g;"
+    "957:high:回到957成本线，解套一半可先走25g;"
+    "955:low:跌破955走弱提醒，935破了再按纪律走;"
+    "953:low:跌破953继续走弱，盯住935;"
+    "949:low:跌破949离935一步之遥，管住手等确认;"
+    "935:low:破935止损纪律，半天站不回走25g"
 )
 
 
@@ -193,7 +197,7 @@ def decide_fire(st, bank, base, src, levels, now, flap):
                     print(f"{direction} {lv:g} 刚穿但在防抖内，吞掉", flush=True)
         if cands and fire is None:
             # 同方向穿多档只推最极端：high 取最高，low 取最低
-            lv, msg = cands[0] if direction == "high" else cands[-1]
+            lv, msg = (max if direction == "high" else min)(cands, key=lambda x: x[0])
             verb = "到线" if direction == "high" else "破线"
             fire = (direction, lv, f"黄金{verb} {lv:g}",
                     f"积存估算¥{bank:.1f}（基准{base:.1f}·{src}），{msg}")
