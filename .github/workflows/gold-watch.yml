@@ -71,7 +71,8 @@ jobs:
             git checkout -- gold-push-state.json 2>/dev/null || true
             echo "模拟测试，本轮状态不落盘，生产档位不受影响"
             exit 0
-          fi          if git status --porcelain gold-push-state.json | grep -q .; then
+          fi
+          if git status --porcelain gold-push-state.json | grep -q .; then
             git config user.name "gold-watch-bot"
             git config user.email "gold-watch-bot@users.noreply.github.com"
             git add gold-push-state.json
