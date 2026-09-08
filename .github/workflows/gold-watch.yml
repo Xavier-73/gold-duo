@@ -1,0 +1,62 @@
+name: gold-watch
+
+# 全免费盯盘：每5分钟跑一次 scripts/gold_watch.py
+# 到了 961 / 破 935 就经 Bark 推到 iPhone（同方向60分钟冷却）
+# 需要先在 GitHub 仓库 Settings → Secrets → Actions 里加 BARK_KEY
+# （iPhone 装 Bark App，打开就显示 key；自建 server 才需要改 BARK_URL）
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "只跑不推送（填 1 则只打印）"
+        required: false
+        default: "0"
+
+permissions:
+  contents: write
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Run gold watch
+        env:
+          BARK_KEY: ${{ secrets.BARK_KEY }}
+          BARK_URL: ${{ vars.BARK_URL }}
+          TH_HIGH: ${{ vars.TH_HIGH }}
+          TH_LOW: ${{ vars.TH_LOW }}
+          COOLDOWN_MIN: ${{ vars.COOLDOWN_MIN }}
+          BANK_OFFSET: ${{ vars.BANK_OFFSET }}
+          FACTOR: ${{ vars.FACTOR }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          : "${BARK_URL:=https://api.day.app}"
+          : "${TH_HIGH:=961}"
+          : "${TH_LOW:=935}"
+          : "${COOLDOWN_MIN:=60}"
+          : "${BANK_OFFSET:=0}"
+          : "${FACTOR:=1}"
+          export BARK_URL TH_HIGH TH_LOW COOLDOWN_MIN BANK_OFFSET FACTOR
+          python3 scripts/gold_watch.py
+
+      - name: Commit push state (only if changed)
+        run: |
+          if git status --porcelain gold-push-state.json | grep -q .; then
+            git config user.name "gold-watch-bot"
+            git config user.email "gold-watch-bot@users.noreply.github.com"
+            git add gold-push-state.json
+            git commit -m "chore: update gold push state [skip ci]"
+            git push
+          else
+            echo "state unchanged, skip commit"
+          fi

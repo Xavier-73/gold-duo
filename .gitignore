@@ -1,0 +1,6 @@
+.DS_Store
+__pycache__/
+*.py[cod]
+server.log
+gold-quant/data/
+gold-duo-backup.html
